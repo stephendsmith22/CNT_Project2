@@ -92,6 +92,8 @@ void send_diff_request(int sockfd, const char *client_dir, char missingFiles[][M
     Message diff_msg;
     diff_msg.header.type = DIFF;
     diff_msg.header.data_length = 0;
+    // reset our missing count first
+    *count = 0;
 
     // Send the DIFF request to the server
     send(sockfd, &diff_msg, sizeof(diff_msg.header), 0);
@@ -182,63 +184,61 @@ void send_pull_request(int sockfd, char missingFiles[][MAX_NAME_LEN], int missin
 {
     for (int i = 0; i < missingCount; i++)
     {
-        printf("File for index '%d' is '%s'.\n", i, missingFiles[i]);
         Message pull_msg;
         pull_msg.header.type = PULL;
         pull_msg.header.data_length = strlen(missingFiles[i]);
         strcpy(pull_msg.data, missingFiles[i]);
 
         // Send the PULL request to the server
-        send(sockfd, &pull_msg, sizeof(pull_msg.header) + pull_msg.header.data_length, 0);
-
-        char buffer[RCVBUFSIZE];
-        int received;
-
-        // Check for error messages from the server
-        if ((received = recv(sockfd, buffer, RCVBUFSIZE - 1, 0)) > 0)
+        if (send(sockfd, &pull_msg, sizeof(pull_msg.header) + pull_msg.header.data_length, 0) < 0)
         {
-            buffer[received] = '\0'; // Null-terminate the string
-            if (strstr(buffer, "Error:") != NULL)
-            {
-                printf("%s", buffer); // Handle the error message
-                close(sockfd);
-                return; // Exit the function if there was an error
-            }
+            perror("Error sending PULL request");
+            close(sockfd);
+            return;
         }
-        // Now expect to receive the file size
+
         long file_size;
-        int total_received = 0;
-        printf("We got here");
-        recv(sockfd, &file_size, sizeof(file_size), 0);
-        printf("Receiving file '%s' (size: %ld bytes) from server...\n", missingFiles[i], file_size);
+        recv(sockfd, &file_size, sizeof(file_size), 0); // Receive file size
 
-        // // Create a valid path for saving the file
-        // char file_path[512];
-        // snprintf(file_path, sizeof(file_path), "%s/%s", client_dir, missingFiles[i]); // Save to client directory
+        char *buffer = (char *)malloc(file_size);
+        if (buffer == NULL)
+        {
+            perror("Error allocating memory for file content");
+            return;
+        }
 
-        // // Proceed to receive the file
-        // FILE *fp = fopen(file_path, "wb");
-        // if (fp == NULL)
-        // {
-        //     perror("Error opening file for writing");
-        //     return;
-        // }
+        size_t total_received = 0;
+        while (total_received < file_size)
+        {
+            ssize_t bytes_received = recv(sockfd, buffer + total_received, file_size - total_received, 0);
+            if (bytes_received < 0)
+            {
+                perror("Error receiving file data");
+                free(buffer);
+                return; // Exit on error
+            }
+            total_received += bytes_received;
+        }
 
-        // long total_received = 0;
-        // while (total_received < file_size)
-        // {
-        //     received = recv(sockfd, buffer, RCVBUFSIZE, 0);
-        //     if (received < 0)
-        //     {
-        //         perror("Error receiving file data");
-        //         fclose(fp);
-        //         return;
-        //     }
-        //     fwrite(buffer, 1, received, fp);
-        //     total_received += received;
-        // }
-        // fclose(fp);
-        // printf("File '%s' downloaded successfully to '%s'.\n", missingFiles[i], file_path);
+        // Create a valid path for saving the file
+        char file_path[512];
+        snprintf(file_path, sizeof(file_path), "%s/%s", client_dir, missingFiles[i]); // Save to client directory
+
+        // Write to file
+        FILE *fp = fopen(file_path, "wb");
+        if (fp == NULL)
+        {
+            perror("Error opening file for writing");
+            free(buffer);
+            return;
+        }
+
+        // write to our client folder, close our file, and free our buffer
+        fwrite(buffer, 1, file_size, fp);
+        fclose(fp);
+        free(buffer);
+
+        printf("File '%s' downloaded successfully to '%s'.\n", missingFiles[i], file_path);
     }
 }
 
