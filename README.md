@@ -8,3 +8,6 @@ Like so many other people, your professor is frustrated with the fact that every
 - In one terminal run ./runserver to start the server.
 - In the other terminals run ./runclient to connect the client to the server.
 - In client terminals, when prompted, choose an option (LIST, DIFF, PULL, LEAVE)
+
+## Notes
+1. Sometimes when running LIST only one file will show up then the others will come after. Just run LIST again and they should all show up
