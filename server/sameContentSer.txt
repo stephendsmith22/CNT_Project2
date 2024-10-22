@@ -1,0 +1,1 @@
+This has the same content and different name (should NOT show up in diff).
