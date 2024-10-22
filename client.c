@@ -85,7 +85,6 @@ void send_diff_request(int sockfd, const char *client_dir) {
     send(sockfd, &diff_msg, sizeof(diff_msg.header), 0);
 
     // Get the client's files and hashes
-    char client_files[RCVBUFSIZE * 10] = "";
     char client_file_hashes[RCVBUFSIZE * 10] = "";
     DIR *dir = opendir(client_dir);
     if (!dir) {
@@ -102,8 +101,6 @@ void send_diff_request(int sockfd, const char *client_dir) {
             char hash_str[MD5_DIGEST_LENGTH * 2 + 1];
             compute_file_hash(file_path, hash_str);
 
-            snprintf(client_files + strlen(client_files), sizeof(client_files) - strlen(client_files),
-                     "%s\n", dir_entry->d_name);
             snprintf(client_file_hashes + strlen(client_file_hashes), sizeof(client_file_hashes) - strlen(client_file_hashes),
                      "%s %s\n", dir_entry->d_name, hash_str);
         }
@@ -122,12 +119,28 @@ void send_diff_request(int sockfd, const char *client_dir) {
         char server_filename[256], server_hash[MD5_DIGEST_LENGTH * 2 + 1];
         sscanf(server_file, "%s %s", server_filename, server_hash);
 
-        if (!strstr(client_file_hashes, server_filename) || !strstr(client_file_hashes, server_hash)) {
+        // Check if the server file's hash exists in client's hashes
+        int hash_found = 0;
+        char *client_file = strtok(client_file_hashes, "\n");
+        while (client_file != NULL) {
+            char client_filename[256], client_hash[MD5_DIGEST_LENGTH * 2 + 1];
+            sscanf(client_file, "%s %s", client_filename, client_hash);
+            if (strcmp(client_hash, server_hash) == 0) {
+                hash_found = 1; // Found a file with the same content (hash)
+                break;
+            }
+            client_file = strtok(NULL, "\n");
+        }
+
+        // Print only if no matching hash was found
+        if (!hash_found) {
             printf("%s (hash: %s)\n", server_filename, server_hash);
         }
+
         server_file = strtok(NULL, "\n");
     }
 }
+
 
 void send_pull_request(int sockfd, const char* filename) {
     Message pull_msg;
@@ -206,7 +219,7 @@ int main(int argc, char *argv[]) {
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    serv_addr.sin_port = htons(8088);
+    serv_addr.sin_port = htons(8089);
 
     if (connect(clientSock, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
         perror("connect() failed");
