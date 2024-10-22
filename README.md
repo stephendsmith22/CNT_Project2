@@ -23,4 +23,4 @@ Like so many other people, your professor is frustrated with the fact that every
 
 ## Notes
 1. Sometimes when running LIST only one file will show up then the others will come after. Just run LIST again and they should all show up
-2. 
+2. If make file says nothing to make, just hit enter on the client.c and server.c to refresh it.
