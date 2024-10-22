@@ -107,39 +107,54 @@ void send_diff_request(int sockfd, const char *client_dir) {
     }
     closedir(dir);
 
+    // Print the client's file list and hashes
+    printf("Client files and hashes:\n%s\n", client_file_hashes);
+
     // Receive server's file list and hashes
     char server_files[RCVBUFSIZE * 10] = "";
     int received = recv(sockfd, server_files, sizeof(server_files) - 1, 0);
     server_files[received] = '\0';
 
+    // Print the server's file list and hashes
+    printf("Server files and hashes:\n%s\n", server_files);
+
     // Compare files and hashes
     printf("Files missing or different on client:\n");
-    char *server_file = strtok(server_files, "\n");
-    while (server_file != NULL) {
-        char server_filename[256], server_hash[MD5_DIGEST_LENGTH * 2 + 1];
-        sscanf(server_file, "%s %s", server_filename, server_hash);
+    
+    char server_filename[256], server_hash[MD5_DIGEST_LENGTH * 2 + 1];
+    char *server_ptr = server_files;
 
-        // Check if the server file's hash exists in client's hashes
+    while (sscanf(server_ptr, "%255s %32s", server_filename, server_hash) == 2) {
+        // Move to the next line in the server files list
+        server_ptr = strchr(server_ptr, '\n');
+        if (server_ptr) server_ptr++; // skip '\n'
+
+        // Check if the server file's hash exists in the client's hashes
         int hash_found = 0;
-        char *client_file = strtok(client_file_hashes, "\n");
-        while (client_file != NULL) {
-            char client_filename[256], client_hash[MD5_DIGEST_LENGTH * 2 + 1];
-            sscanf(client_file, "%s %s", client_filename, client_hash);
+        char client_filename[256], client_hash[MD5_DIGEST_LENGTH * 2 + 1];
+        char *client_ptr = client_file_hashes;
+
+        while (sscanf(client_ptr, "%255s %32s", client_filename, client_hash) == 2) {
+            // Move to the next line in the client files list
+            client_ptr = strchr(client_ptr, '\n');
+            if (client_ptr) client_ptr++; // skip '\n'
+
+            // Compare the server file's hash with the client's
             if (strcmp(client_hash, server_hash) == 0) {
-                hash_found = 1; // Found a file with the same content (hash)
+                hash_found = 1; // Found a matching file and hash
                 break;
             }
-            client_file = strtok(NULL, "\n");
         }
 
         // Print only if no matching hash was found
         if (!hash_found) {
-            printf("%s (hash: %s)\n", server_filename, server_hash);
+            printf("%s (hash: %s) is missing or different on client\n", server_filename, server_hash);
         }
-
-        server_file = strtok(NULL, "\n");
     }
 }
+
+
+
 
 
 void send_pull_request(int sockfd, const char* filename) {
