@@ -10,6 +10,7 @@
 
 #define RCVBUFSIZE 512
 
+// Define message types
 typedef enum {
     LIST = 1,
     DIFF = 2,
@@ -17,11 +18,13 @@ typedef enum {
     LEAVE = 4
 } MessageType;
 
+// Define the message header structure
 typedef struct {
     MessageType type;
     uint32_t data_length;
 } MessageHeader;
 
+// Define the complete message structure
 typedef struct {
     MessageHeader header;
     char data[256];

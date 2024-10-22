@@ -52,6 +52,7 @@ void send_list_request(int sockfd) {
     printf("\n");
 }
 
+// Gets the hash for a file to see if they have the same content or not
 void compute_file_hash(const char *file_path, char *hash_str) {
     unsigned char hash[MD5_DIGEST_LENGTH];
     FILE *file = fopen(file_path, "rb");
@@ -76,6 +77,7 @@ void compute_file_hash(const char *file_path, char *hash_str) {
     hash_str[MD5_DIGEST_LENGTH * 2] = '\0';  // Null-terminate the hash string
 }
 
+// Function find the different files in server vs client
 void send_diff_request(int sockfd, const char *client_dir) {
     Message diff_msg;
     diff_msg.header.type = DIFF;
@@ -108,7 +110,7 @@ void send_diff_request(int sockfd, const char *client_dir) {
     closedir(dir);
 
     // Print the client's file list and hashes
-    printf("Client files and hashes:\n%s\n", client_file_hashes);
+    // printf("Client files and hashes:\n%s\n", client_file_hashes);
 
     // Receive server's file list and hashes
     char server_files[RCVBUFSIZE * 10] = "";
@@ -116,7 +118,7 @@ void send_diff_request(int sockfd, const char *client_dir) {
     server_files[received] = '\0';
 
     // Print the server's file list and hashes
-    printf("Server files and hashes:\n%s\n", server_files);
+    // printf("Server files and hashes:\n%s\n", server_files);
 
     // Compare files and hashes
     printf("Files missing or different on client:\n");
@@ -241,13 +243,17 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    // Loop until client leaves
     int client_left = 0;
     while (client_left == 0) {
         char input;
         char filename[256];
+
+        // Interface
         printf("Enter '1' for LIST, '2' for DIFF, '3' for PULL, or '4' for LEAVE: ");
         scanf(" %c", &input);
 
+        // User option
         if (input == '1') {
             send_list_request(clientSock);
         } else if (input == '2') {
@@ -258,7 +264,7 @@ int main(int argc, char *argv[]) {
             send_pull_request(clientSock, filename);
         } else if (input == '4') {
             send_leave_request(clientSock);
-            client_left = 1;  // Correct assignment for exit
+            client_left = 1;
         } else {
             printf("Invalid input.\n");
         }
