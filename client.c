@@ -79,7 +79,7 @@ void compute_file_hash(const char *file_path, char *hash_str) {
 void send_diff_request(int sockfd, const char *client_dir) {
     Message diff_msg;
     diff_msg.header.type = DIFF;
-    diff_msg.header.data_length = 0;
+    diff_msg.header.data_length = 0;  // No additional data for the request
 
     // Send the DIFF request to the server
     send(sockfd, &diff_msg, sizeof(diff_msg.header), 0);
@@ -107,39 +107,33 @@ void send_diff_request(int sockfd, const char *client_dir) {
     }
     closedir(dir);
 
+    // Send the client file hashes to the server
+    send(sockfd, client_file_hashes, strlen(client_file_hashes), 0);
+    
     // Receive server's file list and hashes
     char server_files[RCVBUFSIZE * 10] = "";
     int received = recv(sockfd, server_files, sizeof(server_files) - 1, 0);
     server_files[received] = '\0';
 
-    // Compare files and hashes
-    printf("Files missing or different on client:\n");
+    // Debugging: Print server files
+    // printf("Server Files and Hashes:\n%s\n", server_files);
+
+    // Identify files that are missing from the client
+    printf("Files missing from client:\n");
     char *server_file = strtok(server_files, "\n");
     while (server_file != NULL) {
         char server_filename[256], server_hash[MD5_DIGEST_LENGTH * 2 + 1];
         sscanf(server_file, "%s %s", server_filename, server_hash);
 
-        // Check if the server file's hash exists in client's hashes
-        int hash_found = 0;
-        char *client_file = strtok(client_file_hashes, "\n");
-        while (client_file != NULL) {
-            char client_filename[256], client_hash[MD5_DIGEST_LENGTH * 2 + 1];
-            sscanf(client_file, "%s %s", client_filename, client_hash);
-            if (strcmp(client_hash, server_hash) == 0) {
-                hash_found = 1; // Found a file with the same content (hash)
-                break;
-            }
-            client_file = strtok(NULL, "\n");
-        }
-
-        // Print only if no matching hash was found
-        if (!hash_found) {
-            printf("%s (hash: %s)\n", server_filename, server_hash);
+        // Check if the server file's hash exists in the client's hashes
+        if (strstr(client_file_hashes, server_filename) == NULL) {
+            printf(server_filename, "\n");
         }
 
         server_file = strtok(NULL, "\n");
     }
 }
+
 
 
 void send_pull_request(int sockfd, const char* filename) {
@@ -219,7 +213,7 @@ int main(int argc, char *argv[]) {
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    serv_addr.sin_port = htons(8089);
+    serv_addr.sin_port = htons(8092);
 
     if (connect(clientSock, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
         perror("connect() failed");
