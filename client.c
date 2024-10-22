@@ -159,123 +159,137 @@ void send_diff_request(int sockfd, const char *client_dir, char missingFiles[][M
 
 void send_pull_request(int sockfd, char missingFiles[256][MAX_FILENAME_LEN], int missingFileCount)
 {
+
     char buffer[RCVBUFSIZE];
+    Message pull_msg;
 
     for (int i = 0; i < missingFileCount; i++)
     {
-        Message pull_msg;
+        // set pull_msg type to pull and copy filename to message's data field
         pull_msg.header.type = PULL;
-
         // send filename to server
         strncpy(pull_msg.data, missingFiles[i], sizeof(pull_msg.data) - 1);
         pull_msg.data[sizeof(pull_msg.data) - 1] = '\0';
         pull_msg.header.data_length = strlen(pull_msg.data);
 
-        // send the pull request to the server
-        if (send(sockfd, &pull_msg, sizeof(pull_msg.header) + pull_msg.header.data_length, 0) < 0)
+        // send the pull_msg to server
+        if (write(sockfd, &pull_msg, sizeof(pull_msg.header) + pull_msg.header.data_length) < 0)
         {
-            perror("error sending pull request");
+            perror("Error sending pull request");
             continue;
         }
 
-        // receive the file size
+        // Receive the file size from the server
         long file_size;
-        if (recv(sockfd, &file_size, sizeof(file_size), 0) <= 0)
+        if (read(sockfd, &file_size, sizeof(file_size)) <= 0)
         {
             perror("Error receiving file size");
             continue;
         }
 
-        // print the file size for the user
-        printf("Receiving file '%s' (size: %ld bytes) from server...\n", pull_msg.data, file_size);
-
-        // create a valid path for saving the file
-        char file_path[512];
-        snprintf(file_path, sizeof(file_path), "%s/%s", client_dir, pull_msg.data); // Save to client directory
-
-        // Open the file for writing
-        FILE *fp = fopen(file_path, "wb");
-        if (fp == NULL)
+        // Check for a valid file size
+        if (file_size <= 0)
         {
-            perror("Error opening file for writing");
-            continue; // Skip to the next file if there's an error
+            printf("File not found on server: %s\n", pull_msg.data);
+            continue;
         }
 
+        // Allocate memory for the file content
+        char *fileContent = (char *)malloc(file_size);
+        if (fileContent == NULL)
+        {
+            perror("Error allocating memory for file");
+            continue;
+        }
+
+        // Read the file content from the server
         long total_received = 0;
         while (total_received < file_size)
         {
-            int received = recv(sockfd, buffer, sizeof(buffer), 0);
-            if (received < 0)
+            ssize_t bytes_received = read(sockfd, buffer, sizeof(buffer));
+            if (bytes_received <= 0)
             {
                 perror("Error receiving file data");
-                fclose(fp);
-                break; // Exit the loop but still close the file
+                free(fileContent);
+                break;
             }
-            fwrite(buffer, 1, received, fp);
-            total_received += received;
+            // Copy received data to the allocated fileContent buffer
+            memcpy(fileContent + total_received, buffer, bytes_received);
+            total_received += bytes_received;
         }
-        fclose(fp);
-        printf("File '%s' downloaded successfully to '%s'.\n", pull_msg.data, file_path);
+
+        // Ensure we received the full file
+        if (total_received != file_size)
+        {
+            printf("File transfer incomplete for: %s. Expected %ld bytes, received %ld bytes\n", pull_msg.data, file_size, total_received);
+            free(fileContent);
+            continue;
+        }
+
+        // Save the file locally in the client_music directory
+        char filepath[MAX_FILENAME_LEN + sizeof(client_dir)];
+        snprintf(filepath, sizeof(filepath), "%s/%s", client_dir, pull_msg.data);
+
+        FILE *file = fopen(filepath, "wb");
+        if (file == NULL)
+        {
+            perror("Error opening file for writing");
+            free(fileContent);
+            continue;
+        }
+
+        // Write the file content to disk
+        fwrite(fileContent, 1, file_size, file);
+        fclose(file);
+        printf("Downloaded: %s\n", pull_msg.data);
+
+        // Free the allocated memory
+        free(fileContent);
     }
-
-    // // Send the PULL request to the server
-    // send(sockfd, &pull_msg, sizeof(pull_msg.header) + pull_msg.header.data_length, 0);
-
-    // char buffer[RCVBUFSIZE];
-    // int received;
-
-    // // Check for error messages from the server
-    // if ((received = recv(sockfd, buffer, RCVBUFSIZE - 1, 0)) > 0)
+    // if (send(sockfd, &pull_msg, sizeof(pull_msg.header) + pull_msg.header.data_length, 0) < 0)
     // {
-    //     buffer[received] = '\0'; // Null-terminate the string
-    //     if (strstr(buffer, "Error:") != NULL)
-    //     {
-    //         printf("%s", buffer); // Handle the error message
-    //         close(sockfd);
-    //         return; // Exit the function if there was an error
-    //     }
+    //     perror("error sending pull request");
+    //     continue;
     // }
 
-    // // Now expect to receive the file size
+    // // receive the file size
     // long file_size;
     // if (recv(sockfd, &file_size, sizeof(file_size), 0) <= 0)
     // {
     //     perror("Error receiving file size");
-    //     close(sockfd);
-    //     return;
+    //     continue;
     // }
 
-    // // Create a valid path for saving the file
-    // char file_path[512];
-    // snprintf(file_path, sizeof(file_path), "%s/%s", client_dir, filename); // Save to client directory
+    // // print the file size for the user
+    // printf("Receiving file '%s' (size: %ld bytes) from server...\n", pull_msg.data, file_size);
 
-    // // Proceed to receive the file
+    // // create a valid path for saving the file
+    // char file_path[512];
+    // snprintf(file_path, sizeof(file_path), "%s/%s", client_dir, pull_msg.data); // Save to client directory
+
+    // // Open the file for writing
     // FILE *fp = fopen(file_path, "wb");
     // if (fp == NULL)
     // {
     //     perror("Error opening file for writing");
-    //     close(sockfd);
-    //     return;
+    //     continue; // Skip to the next file if there's an error
     // }
 
     // long total_received = 0;
     // while (total_received < file_size)
     // {
-    //     received = recv(sockfd, buffer, RCVBUFSIZE, 0);
+    //     int received = recv(sockfd, buffer, sizeof(buffer), 0);
     //     if (received < 0)
     //     {
     //         perror("Error receiving file data");
     //         fclose(fp);
-    //         close(sockfd);
-    //         return;
+    //         break; // Exit the loop but still close the file
     //     }
     //     fwrite(buffer, 1, received, fp);
     //     total_received += received;
     // }
     // fclose(fp);
-    // printf("File '%s' downloaded successfully to '%s'.\n", filename, file_path);
-
-    // // close socket after successful file transfer
+    // printf("File '%s' downloaded successfully to '%s'.\n", pull_msg.data, file_path);
 }
 
 // Function to handle LEAVE request
