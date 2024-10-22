@@ -6,6 +6,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <pthread.h>
+#include <openssl/md5.h>
 
 #define RCVBUFSIZE 512
 
@@ -29,174 +30,190 @@ typedef struct {
 // Function to handle LIST request
 void handle_client_list(int client_socket) {
     struct dirent *dir_entry;
-    DIR *dir = opendir(".");
+    DIR *dir = opendir("./server");
     char buffer[RCVBUFSIZE];
 
     if (dir == NULL) {
-        perror("opendir() failed");
-        close(client_socket);
+        perror("opendir failed");
         return;
     }
 
     while ((dir_entry = readdir(dir)) != NULL) {
-        snprintf(buffer, sizeof(buffer), "%s\n", dir_entry->d_name);
-        send(client_socket, buffer, strlen(buffer), 0);
-    }
-
-    closedir(dir);
-    close(client_socket);
-}
-
-void handle_client_diff(int client_socket) {
-    struct dirent *dir_entry;
-    DIR *dir = opendir(".");
-    char buffer[RCVBUFSIZE];
-    char server_files[RCVBUFSIZE * 10]; // Assuming max 10 files for simplicity
-    int count = 0;
-
-    if (dir == NULL) {
-        perror("opendir() failed");
-        close(client_socket);
-        return;
-    }
-
-    // Collect server files
-    while ((dir_entry = readdir(dir)) != NULL) {
-        // Skip "." and ".."
         if (strcmp(dir_entry->d_name, ".") != 0 && strcmp(dir_entry->d_name, "..") != 0) {
             snprintf(buffer, sizeof(buffer), "%s\n", dir_entry->d_name);
-            strcat(server_files, buffer);
-            count++;
+            send(client_socket, buffer, strlen(buffer), 0);
         }
     }
 
     closedir(dir);
-    
-    // Send server files list to client
-    send(client_socket, server_files, strlen(server_files), 0);
-    close(client_socket);
+    printf("Sent file list to client.\n");
 }
 
-// Function to handle PULL request by sending the requested file
-void handle_client_pull(int client_socket, const char* filename) {
-    FILE *fp = fopen(filename, "rb");
+// Function to handle DIFF request
+void handle_client_diff(int client_socket) {
     char buffer[RCVBUFSIZE];
-    size_t bytes_read;
+    snprintf(buffer, sizeof(buffer), "These are the server files and hashes:\n");
 
-    if (fp == NULL) {
-        const char *error_msg = "Error: File not found.\n";
-        send(client_socket, error_msg, strlen(error_msg), 0);
-        close(client_socket);
+    // List server files and their hashes
+    struct dirent *dir_entry;
+    DIR *dir = opendir("./server");
+
+    if (dir == NULL) {
+        perror("opendir failed");
         return;
     }
 
-    printf("Sending file '%s' to client...\n", filename);
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
+    char server_file_hashes[RCVBUFSIZE * 10] = "";
+
+    while ((dir_entry = readdir(dir)) != NULL) {
+        if (strcmp(dir_entry->d_name, ".") != 0 && strcmp(dir_entry->d_name, "..") != 0) {
+            // Generate file hash
+            char file_path[512];
+            snprintf(file_path, sizeof(file_path), "./server/%s", dir_entry->d_name);
+
+            unsigned char hash[MD5_DIGEST_LENGTH];
+            MD5_CTX md5_ctx;
+            MD5_Init(&md5_ctx);
+            FILE *file = fopen(file_path, "rb");
+            if (file != NULL) {
+                char file_buffer[1024];
+                size_t bytes;
+                while ((bytes = fread(file_buffer, 1, sizeof(file_buffer), file)) != 0) {
+                    MD5_Update(&md5_ctx, file_buffer, bytes);
+                }
+                MD5_Final(hash, &md5_ctx);
+                fclose(file);
+            }
+
+            char hash_str[MD5_DIGEST_LENGTH * 2 + 1];
+            for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
+                sprintf(&hash_str[i * 2], "%02x", hash[i]);
+            }
+            hash_str[MD5_DIGEST_LENGTH * 2] = '\0';
+
+            snprintf(server_file_hashes + strlen(server_file_hashes), sizeof(server_file_hashes) - strlen(server_file_hashes),
+                     "%s %s\n", dir_entry->d_name, hash_str);
+        }
+    }
+
+    send(client_socket, server_file_hashes, strlen(server_file_hashes), 0);
+    closedir(dir);
+    printf("Sent DIFF information to client.\n");
+}
+
+// Function to handle PULL request
+void handle_client_pull(int client_socket, const char *filename) {
+    char file_path[512];
+    snprintf(file_path, sizeof(file_path), "./server/%s", filename);
+    FILE *file = fopen(file_path, "rb");
+
+    if (file == NULL) {
+        char error_msg[] = "Error: File not found.\n";
+        send(client_socket, error_msg, strlen(error_msg), 0);
+        printf("Error: %s\n", error_msg);
+        return;
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET); // Reset to beginning of file
+
+    // Send the file size to the client first
+    send(client_socket, &file_size, sizeof(file_size), 0);
+
+    char buffer[RCVBUFSIZE];
+    while (1) {
+        size_t bytes_read = fread(buffer, 1, sizeof(buffer), file);
+        if (bytes_read <= 0) {
+            break;
+        }
         send(client_socket, buffer, bytes_read, 0);
     }
-    fclose(fp);
-    printf("File '%s' sent successfully.\n", filename);
-    close(client_socket);
+    fclose(file);
+    printf("Sent file '%s' to client.\n", filename);
 }
+
 
 // Function to handle LEAVE request
 void handle_client_leave(int client_socket) {
-    printf("Client has requested to leave. Closing connection...\n");
     close(client_socket);
+    printf("Client disconnected.\n");
 }
 
-// Function to handle a single client connection
-void* handle_client(void* client_sock_ptr) {
-    int client_socket = *(int*)client_sock_ptr;
-    free(client_sock_ptr);  // Free the pointer passed to the thread
+// Client handler function
+void *client_handler(void *socket_desc) {
+    int client_socket = *(int *)socket_desc;
     Message msg;
 
-    // Receive the message header
-    if (recv(client_socket, &msg, sizeof(msg.header), 0) <= 0) {
-        perror("recv() failed");
-        close(client_socket);
-        return NULL;
-    }
-
-    // If the message is a PULL request, receive additional data
-    if (msg.header.type == PULL) {
-        if (recv(client_socket, msg.data, msg.header.data_length, 0) <= 0) {
-            perror("recv() failed");
-            close(client_socket);
-            return NULL;
+    while (recv(client_socket, &msg.header, sizeof(msg.header), 0) > 0) {
+        switch (msg.header.type) {
+            case LIST:
+                handle_client_list(client_socket);
+                break;
+            case DIFF:
+                handle_client_diff(client_socket);
+                break;
+            case PULL:
+                recv(client_socket, msg.data, msg.header.data_length, 0);
+                handle_client_pull(client_socket, msg.data);
+                break;
+            case LEAVE:
+                handle_client_leave(client_socket);
+                return 0;
+            default:
+                printf("Unknown request type received.\n");
+                break;
         }
     }
 
-    // Handle the message based on its type
-    switch (msg.header.type) {
-        case LIST:
-            handle_client_list(client_socket);
-            break;
-        case DIFF:
-            handle_client_diff(client_socket);
-            break;
-        case PULL:
-            handle_client_pull(client_socket, msg.data);
-            break;
-        case LEAVE:
-            handle_client_leave(client_socket);
-            break;
-        default:
-            printf("Unknown message type received.\n");
-            close(client_socket);
-    }
-
-    return NULL;
+    handle_client_leave(client_socket);
+    return 0;
 }
 
-int main() {
-    int serverSock;
-    struct sockaddr_in serv_addr, clnt_addr;
-    unsigned int clntLen;
+int main(int argc, char *argv[]) {
+    int server_sock, client_sock;
+    struct sockaddr_in server, client;
 
-    if ((serverSock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
-        perror("socket() failed");
-        exit(1);
+    // Create socket
+    server_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_sock == -1) {
+        perror("Could not create socket");
+        return 1;
     }
 
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serv_addr.sin_port = htons(9091);
+    // Prepare the sockaddr_in structure
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(8088);
 
-    if (bind(serverSock, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
-        perror("bind() failed");
-        exit(1);
+    // Bind
+    if (bind(server_sock, (struct sockaddr *)&server, sizeof(server)) < 0) {
+        perror("bind failed");
+        return 1;
     }
 
-    if (listen(serverSock, 10) < 0) {
-        perror("listen() failed");
-        exit(1);
-    }
+    // Listen
+    listen(server_sock, 3);
+    printf("Waiting for incoming connections...\n");
+    socklen_t client_size = sizeof(client);
 
-    printf("Server is listening on port 9091...\n");
+    // Accept incoming connection
+    while ((client_sock = accept(server_sock, (struct sockaddr *)&client, &client_size))) {
+        printf("Connection accepted\n");
 
-    while (1) {
-        clntLen = sizeof(clnt_addr);
-        int* clientSockPtr = malloc(sizeof(int));  // Allocate memory for the client socket
-        if ((*clientSockPtr = accept(serverSock, (struct sockaddr *) &clnt_addr, &clntLen)) < 0) {
-            perror("accept() failed");
-            free(clientSockPtr);  // Free the memory if accept failed
-            continue;
+        pthread_t client_thread;
+        if (pthread_create(&client_thread, NULL, client_handler, (void *)&client_sock) < 0) {
+            perror("Could not create thread");
+            return 1;
         }
-
-        // Create a thread to handle the client
-        pthread_t thread_id;
-        if (pthread_create(&thread_id, NULL, handle_client, clientSockPtr) != 0) {
-            perror("pthread_create() failed");
-            close(*clientSockPtr);
-            free(clientSockPtr);
-        }
-
-        // Detach the thread so resources are automatically freed when it terminates
-        pthread_detach(thread_id);
     }
 
-    close(serverSock);
+    if (client_sock < 0) {
+        perror("accept failed");
+        return 1;
+    }
+
+    close(server_sock);
     return 0;
 }
