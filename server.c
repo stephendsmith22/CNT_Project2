@@ -27,34 +27,37 @@ typedef struct {
     char data[256];
 } Message;
 
-// Function to handle LIST request
 void handle_client_list(int client_socket) {
     struct dirent *dir_entry;
     DIR *dir = opendir("./server");
     char buffer[RCVBUFSIZE];
+    int total_sent = 0; // Track total bytes sent
 
     if (dir == NULL) {
         perror("opendir failed");
         return;
     }
 
+    // Gather all filenames
     while ((dir_entry = readdir(dir)) != NULL) {
         if (strcmp(dir_entry->d_name, ".") != 0 && strcmp(dir_entry->d_name, "..") != 0) {
-            snprintf(buffer, sizeof(buffer), "%s\n", dir_entry->d_name);
-            send(client_socket, buffer, strlen(buffer), 0);
+            int len = snprintf(buffer + total_sent, sizeof(buffer) - total_sent, "%s\n", dir_entry->d_name);
+            if (len < 0 || total_sent + len >= sizeof(buffer)) {
+                break; // Prevent overflow
+            }
+            total_sent += len;
         }
     }
 
+    // Send all filenames in one go
+    send(client_socket, buffer, total_sent, 0);
     closedir(dir);
     printf("Sent file list to client.\n");
 }
 
-// Function to handle DIFF request
 void handle_client_diff(int client_socket) {
-    char buffer[RCVBUFSIZE];
-    snprintf(buffer, sizeof(buffer), "These are the server files and hashes:\n");
-
-    // List server files and their hashes
+    // Prepare to gather server file hashes
+    char server_file_hashes[RCVBUFSIZE * 10] = "";
     struct dirent *dir_entry;
     DIR *dir = opendir("./server");
 
@@ -62,8 +65,6 @@ void handle_client_diff(int client_socket) {
         perror("opendir failed");
         return;
     }
-
-    char server_file_hashes[RCVBUFSIZE * 10] = "";
 
     while ((dir_entry = readdir(dir)) != NULL) {
         if (strcmp(dir_entry->d_name, ".") != 0 && strcmp(dir_entry->d_name, "..") != 0) {
@@ -96,10 +97,13 @@ void handle_client_diff(int client_socket) {
         }
     }
 
+    // Send the complete list of server file hashes to the client
     send(client_socket, server_file_hashes, strlen(server_file_hashes), 0);
     closedir(dir);
     printf("Sent DIFF information to client.\n");
 }
+
+
 
 // Function to handle PULL request
 void handle_client_pull(int client_socket, const char *filename) {
@@ -185,7 +189,7 @@ int main(int argc, char *argv[]) {
     // Prepare the sockaddr_in structure
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = htons(8089);
+    server.sin_port = htons(8092);
 
     // Bind
     if (bind(server_sock, (struct sockaddr *)&server, sizeof(server)) < 0) {
