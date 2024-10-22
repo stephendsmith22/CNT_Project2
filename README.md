@@ -19,5 +19,8 @@ Like so many other people, your professor is frustrated with the fact that every
   ```
 - In client terminals, when prompted, choose an option (LIST, DIFF, PULL, LEAVE)
 
+3. Interface: Choose 1 for LIST, 2 for DIFF, 3 for PULL and 4 for LEAVE
+
 ## Notes
 1. Sometimes when running LIST only one file will show up then the others will come after. Just run LIST again and they should all show up
+2. 
