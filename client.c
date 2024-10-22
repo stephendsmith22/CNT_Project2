@@ -59,8 +59,13 @@ void send_list_request(int sockfd)
     printf("\n");
 }
 
+<<<<<<< HEAD
 void compute_file_hash(const char *file_path, char *hash_str)
 {
+=======
+// Gets the hash for a file to see if they have the same content or not
+void compute_file_hash(const char *file_path, char *hash_str) {
+>>>>>>> 20bda54809589a60e453143da43fe4812e70fe98
     unsigned char hash[MD5_DIGEST_LENGTH];
     FILE *file = fopen(file_path, "rb");
     if (!file)
@@ -87,8 +92,13 @@ void compute_file_hash(const char *file_path, char *hash_str)
     hash_str[MD5_DIGEST_LENGTH * 2] = '\0'; // Null-terminate the hash string
 }
 
+<<<<<<< HEAD
 void send_diff_request(int sockfd, const char *client_dir, char missingFiles[][MAX_NAME_LEN], int *count)
 {
+=======
+// Function find the different files in server vs client
+void send_diff_request(int sockfd, const char *client_dir) {
+>>>>>>> 20bda54809589a60e453143da43fe4812e70fe98
     Message diff_msg;
     diff_msg.header.type = DIFF;
     diff_msg.header.data_length = 0;
@@ -278,16 +288,24 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    // Loop until client leaves
     int client_left = 0;
     while (client_left == 0)
     {
         char input;
         char filename[256];
+
+        // Interface
         printf("Enter '1' for LIST, '2' for DIFF, '3' for PULL, or '4' for LEAVE: ");
         scanf(" %c", &input);
 
+<<<<<<< HEAD
         if (input == '1')
         {
+=======
+        // User option
+        if (input == '1') {
+>>>>>>> 20bda54809589a60e453143da43fe4812e70fe98
             send_list_request(clientSock);
         }
         else if (input == '2')
@@ -304,10 +322,15 @@ int main(int argc, char *argv[])
         else if (input == '4')
         {
             send_leave_request(clientSock);
+<<<<<<< HEAD
             client_left = 1; // Correct assignment for exit
         }
         else
         {
+=======
+            client_left = 1;
+        } else {
+>>>>>>> 20bda54809589a60e453143da43fe4812e70fe98
             printf("Invalid input.\n");
         }
     }
