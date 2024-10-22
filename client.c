@@ -10,6 +10,7 @@
 #include <openssl/evp.h>
 
 #define RCVBUFSIZE 512
+#define MAX_FILENAME_LEN 512
 
 // Define message types
 typedef enum
@@ -86,7 +87,7 @@ void compute_file_hash(const char *file_path, char *hash_str)
     hash_str[MD5_DIGEST_LENGTH * 2] = '\0'; // Null-terminate the hash string
 }
 
-void send_diff_request(int sockfd, const char *client_dir, char missingFiles[][256], int *missingFileCount)
+void send_diff_request(int sockfd, const char *client_dir, char missingFiles[][MAX_FILENAME_LEN], int *missingFileCount)
 {
     Message diff_msg;
     diff_msg.header.type = DIFF;
@@ -106,6 +107,7 @@ void send_diff_request(int sockfd, const char *client_dir, char missingFiles[][2
 
     struct dirent *dir_entry;
     *missingFileCount = 0; // reset first
+    printf("Missing count at beginning: %d", *missingFileCount);
     while ((dir_entry = readdir(dir)) != NULL)
     {
         if (strcmp(dir_entry->d_name, ".") != 0 && strcmp(dir_entry->d_name, "..") != 0)
@@ -155,7 +157,7 @@ void send_diff_request(int sockfd, const char *client_dir, char missingFiles[][2
     }
 }
 
-void send_pull_request(int sockfd, char missingFiles[256][256], int missingFileCount)
+void send_pull_request(int sockfd, char missingFiles[256][MAX_FILENAME_LEN], int missingFileCount)
 {
     char buffer[RCVBUFSIZE];
 
@@ -315,8 +317,8 @@ int main(int argc, char *argv[])
     while (client_left == 0)
     {
         char input;
-        char filename[256];
-        char missingFiles[256][256];
+        char missingFiles[256][MAX_FILENAME_LEN];
+
         printf("Enter '1' for LIST, '2' for DIFF, '3' for PULL, or '4' for LEAVE: ");
         scanf(" %c", &input);
 
